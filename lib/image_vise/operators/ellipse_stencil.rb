@@ -14,7 +14,9 @@ class ImageVise::EllipseStencil
 
   def apply!(magick_image)
     width, height = magick_image.columns, magick_image.rows
-    
+    only_alpha = nil
+    mask = nil
+
     # This is a bit involved. We need to do a manual composite. Here is what it entails.
     #
     # Given a premultiplied RGB image B, and a grayscale mask A, we need to do the following
@@ -28,21 +30,26 @@ class ImageVise::EllipseStencil
     # To begin,generate a black and white image for the stencil
     mask = Magick::Image.new(width, height)
     draw_circle(mask, width, height)
-    
+ 
     # At this stage the mask contains a B/W image of the circle, black outside, white inside.
-    # Retain the alpha of the original in a separate image
+    # Extract the alpha of the source, and copy it to all the other channels - so that we can
+    # later multiply
     only_alpha = magick_image.copy
     only_alpha.alpha(Magick::ExtractAlphaChannel)
+    only_alpha.composite!(mask, Magick::CenterGravity, Magick::MultiplyCompositeOp)
+
     mask.composite!(only_alpha, Magick::CenterGravity, Magick::MultiplyCompositeOp)
-    
+    mask.alpha(Magick::CopyAlphaChannel)
+
     # With this composite op, enabling alpha on the destination image is
     # not required - it will be enabled automatically.
     # The CopyOpacityCompositeOp implies that we copy the grayscale version
     # of the RGB channels as the alpha channel, so for some weird reason we need
     # to disable the alpha on our mask image
-    mask.alpha(Magick::DeactivateAlphaChannel)
+    # mask.alpha(Magick::DeactivateAlphaChannel)
+
     # And perform the operation (set gray(RGB) of mask as the A of magick_image)
-    magick_image.composite!(mask, Magick::CenterGravity, Magick::CopyOpacityCompositeOp)
+    magick_image.composite!(mask, Magick::CenterGravity, Magick::CopyAlphaCompositeOp)
   ensure
     [mask, only_alpha].each do |maybe_image|
       ImageVise.destroy(maybe_image)
