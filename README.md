@@ -20,15 +20,12 @@ A request to `ImageVise` might look like this:
 The URL that gets generated is best composed with the included `ImageVise.image_params` method. This method will
 take care of encoding the source URL and the commands in the right way, as well as signing.
 
-## ImageMagick version workaround
+## ImageMagick version
 
-As specified in [this StackOverflow answer](https://stackoverflow.com/questions/41647979/imagemagick-7-with-rmagick-2-16-on-macos-sierra-cant-find-magickwand-h/41747901#41747901) you need to install ImageMagick 6 from keg on OSX since RMagick cannot yet cope with ImageMagick 7.
+The modernized image_vise works with rmagick 6, which supports modern ImageMagick versions (including version 7). The workarounds are no longer required - install modern ImageMagick using your preferred package management tool. For example, with homebrew:
 
 ```
-$ brew rm imagemagick
-$ brew install imagemagick@6 --with-little-cms --with-little-cms2
-$ brew link imagemagick@6 --force
-$ export PATH=$PATH:$(brew --prefix imagemagick@6)/bin
+$ brew install imagemagick
 bundle install
 ```
 
