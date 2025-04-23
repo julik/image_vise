@@ -34,6 +34,8 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'rack', '>= 1', '< 3'
   spec.add_dependency 'format_parser', '~> 2'
   spec.add_dependency 'measurometer', '~> 1'
+  spec.add_dependency 'base64'
+  spec.add_dependency 'logger'
 
   spec.add_development_dependency 'magic_bytes', '~> 1'
   spec.add_development_dependency "rake", "~> 12.2"
