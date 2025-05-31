@@ -151,6 +151,14 @@ class ImageVise
         @operators.key(operator.class)
       end
     end
+
+    def capture_exceptions_with(&blk)
+      @exception_capture = blk
+    end
+
+    def capture_exception(e)
+      @exception_capture.call(e) if @exception_capture
+    end
   end
 
   # Made available since the object that is used with `mount()` in Rails

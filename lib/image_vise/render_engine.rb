@@ -215,6 +215,7 @@
     if raise_exceptions?
       raise exception
     else
+      ImageVise.capture_exception(exception)
       bail status_code, exception.message
     end
   end
