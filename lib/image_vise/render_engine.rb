@@ -152,7 +152,12 @@
     etag = image_request.cache_etag
 
     # Download/copy the original into a Tempfile
-    fetcher = ImageVise.fetcher_for(source_image_uri.scheme)
+    fetcher = begin
+      ImageVise.fetcher_for(source_image_uri.scheme)
+    rescue ImageVise::UnknownFetcher => e
+      raise_exception_or_error_response(e, 404)
+    end
+
     source_file = Measurometer.instrument('image_vise.fetch') do
       fetcher.fetch_uri_to_tempfile(source_image_uri)
     end

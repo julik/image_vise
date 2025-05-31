@@ -89,7 +89,7 @@ describe ImageVise do
 
       expect {
         ImageVise.fetcher_for('undernet')
-      }.to raise_error(/No fetcher registered/)
+      }.to raise_error(ImageVise::UnknownFetcher)
     end
   end
 

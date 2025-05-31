@@ -209,10 +209,10 @@ describe ImageVise::RenderEngine do
       # at the fetcher lookup stage. That stage however takes place _after_ the
       # signature has been validated, which means that the slash within the
       # Base64 payload has been taken into account
-      expect(app).to receive(:raise_exceptions?).and_return(true)
+      allow(app).to receive(:raise_exceptions?).and_return(true)
       expect {
         get req.to_path_params('this is fab')
-      }.to raise_error(/No fetcher registered for shadericon/)
+      }.to raise_error(ImageVise::UnknownFetcher)
     end
 
     it 'calls all of the internal methods during execution' do

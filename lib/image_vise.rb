@@ -26,9 +26,15 @@ class ImageVise
   @allowed_glob_patterns = Set.new
   @fetchers = {}
   @cache_lifetime = DEFAULT_CACHE_LIFETIME
-  
+
   const_set(:Measurometer, ::Measurometer)
-  
+
+  class UnknownFetcher < StandardError
+  end
+
+  class UnknownOp < StandardError
+  end
+
   class << self
     # Resets all allowed hosts
     def reset_allowed_hosts!
@@ -129,12 +135,20 @@ class ImageVise
     end
 
     def fetcher_for(scheme)
-      S_MUTEX.synchronize { @fetchers[scheme.to_s] or raise "No fetcher registered for #{scheme}" }
+      S_MUTEX.synchronize do
+        unless @fetchers[scheme.to_s]
+          raise UnknownFetcher, "Fetcher #{scheme.inspect} not registered using ImageVise.register_fetcher"
+        end
+        @fetchers[scheme.to_s]
+      end
     end
 
     def operator_name_for(operator)
       S_MUTEX.synchronize do
-        @operators.key(operator.class) or raise "Operator #{operator.inspect} not registered using ImageVise.add_operator"
+        unless @operators.key(operator.class)
+          raise UnknownOp, "Operator #{operator.inspect} not registered using ImageVise.add_operator"
+        end
+        @operators.key(operator.class)
       end
     end
   end
