@@ -79,11 +79,14 @@
 
     req = parse_env_into_request(env)
     bail(405, 'Only GET supported') unless req.get?
-    encoded_request, signature = extract_params_from_request(req)
-
-    image_request = ImageVise::ImageRequest.from_params(
-      base64_encoded_params: encoded_request,
-      given_signature: signature,
+    
+    # Extract JWT token from path
+    path_info = req.path_info
+    jwt_token = path_info.sub(/^\//, '') # Remove leading slash
+    
+    # Validate JWT token and create image request
+    image_request = ImageVise::ImageRequest.from_token(
+      jwt_token: jwt_token,
       secrets: ImageVise.secret_keys
     )
     render_destination_file, render_file_type, etag, expire_after = process_image_request(image_request)
@@ -112,29 +115,6 @@
     Rack::Request.new(rack_env)
   end
 
-  # Extracts the image params from the Rack::Request
-  #
-  # @param rack_request[#path_info] an object that has a path info
-  # @return [String, String] the Base64-encoded image request and the signature
-  def extract_params_from_request(rack_request)
-    # Prevent cache bypass DOS attacks by only permitting :sig and :q
-    bail(400, 'Query strings are not supported') if rack_request.params.any?
-
-    # Take the last two path components of the request URI.
-    # The second-to-last is the Base64-encoded image request, the last is the signature.
-    # Slashes within the image request are masked out already, no need to worry about them.
-    # Parameters are passed in the path so that ImageVise integrates easier with CDNs and so that
-    # it becomes harder to blow the cache by appending spurious query string parameters and/or
-    # reordering query string parameters at will.
-    *, q_from_path, sig_from_path = rack_request.path_info.split('/')
-
-    # Raise if any of them are empty or blank
-    nothing_recovered = [q_from_path, sig_from_path].all?{|v| v.nil? || v.empty? }
-    bail(400, 'Need 2 usable path components') if nothing_recovered
-
-    [q_from_path, sig_from_path]
-  end
-
   # Processes the ImageRequest object created from the request parameters,
   # and returns a triplet of the File object containing the rendered image,
   # the MagicBytes::FileType object of the render, and the cache ETag value
@@ -144,7 +124,7 @@
   # @return [Array<File, FileType, String]
   def process_image_request(image_request)
     # Recover the source image URL and the pipeline instructions (all the image ops)
-    source_image_uri, pipeline = image_request.src_url, image_request.pipeline
+    image_source_definition, pipeline = image_request.src, image_request.pipeline
     raise 'Image pipeline has no operators' if pipeline.empty?
 
     # Compute an ETag which describes this image transform + image source location.
@@ -153,17 +133,18 @@
 
     # Download/copy the original into a Tempfile
     fetcher = begin
-      ImageVise.fetcher_for(source_image_uri.scheme)
+      ImageVise.fetcher_for(image_source_definition.fetcher)
     rescue ImageVise::UnknownFetcher => e
       raise_exception_or_error_response(e, 404)
     end
 
     source_file = Measurometer.instrument('image_vise.fetch') do
-      fetcher.fetch_uri_to_tempfile(source_image_uri)
+      fetcher.fetch_to_tempfile(**image_source_definition.params)
     end
+
     file_format = FormatParser.parse(source_file, natures: [:image]).tap { source_file.rewind }
-    raise UnsupportedInputFormat.new("%s has an unknown input file format" % source_image_uri) unless file_format
-    raise UnsupportedInputFormat.new("%s does not pass file constraints" % source_image_uri) unless permitted_format?(file_format)
+    raise UnsupportedInputFormat.new("%s has an unknown input file format" % image_request.src_url_string) unless file_format
+    raise UnsupportedInputFormat.new("%s does not pass file constraints" % image_request.src_url_string) unless permitted_format?(file_format)
 
     render_destination_file = Tempfile.new('imagevise-render').tap{|f| f.binmode }
 

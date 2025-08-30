@@ -11,8 +11,13 @@ class ImageVise::FetcherHTTP
     end
   end
   
-  def self.fetch_uri_to_tempfile(uri)
+  def self.fetch_to_tempfile(url: nil, **kwargs)
+    # Handle both old and new calling conventions
+    url ||= kwargs[:url]
+    raise ArgumentError, "url parameter is required" unless url
+    
     tf = Tempfile.new 'imagevise-http-download'
+    uri = URI.parse(url)
     verify_uri_access!(uri)
 
     s = Patron::Session.new

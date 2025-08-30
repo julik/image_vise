@@ -83,9 +83,9 @@ describe ImageVise do
   describe 'methods dealing with fetchers' do
     it 'returns the fetchers for the default schemes' do
       http = ImageVise.fetcher_for('http')
-      expect(http).to respond_to(:fetch_uri_to_tempfile)
+      expect(http).to respond_to(:fetch_to_tempfile)
       file = ImageVise.fetcher_for('file')
-      expect(http).to respond_to(:fetch_uri_to_tempfile)
+      expect(http).to respond_to(:fetch_to_tempfile)
 
       expect {
         ImageVise.fetcher_for('undernet')
@@ -95,7 +95,7 @@ describe ImageVise do
 
   describe '.image_path' do
     it 'returns the path to the image within the application' do
-      path = ImageVise.image_path(src_url: 'file://tmp/img.jpg', secret: 'a') do |p|
+      path = ImageVise.image_path(fetcher: 'file', fetcher_params: {path: '/tmp/img.jpg'}, secret: 'a') do |p|
         p.ellipse_stencil
       end
       expect(path).to start_with('/')

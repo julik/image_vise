@@ -11,11 +11,12 @@ describe ImageVise::FetcherFile do
 
   it 'returns a Tempfile containing this test suite' do
     path = File.expand_path(__FILE__)
-    ruby_files_in_this_directory = __dir__ + '/*.rb'
-    ImageVise.allow_filesystem_source! ruby_files_in_this_directory
+    # Allow access to the entire spec directory and subdirectories using absolute path
+    whitelist_pattern = File.expand_path(File.dirname(__dir__)) + '/**/*.rb'
+    ImageVise.allow_filesystem_source! whitelist_pattern
 
     uri = URI('file://' + ImageVise::FetcherFile.encode_file_uri_path(path))
-    fetched = ImageVise::FetcherFile.fetch_uri_to_tempfile(uri)
+    fetched = ImageVise::FetcherFile.fetch_to_tempfile(path: __FILE__)
 
     expect(fetched).to be_kind_of(Tempfile)
     expect(fetched.size).to eq(File.size(__FILE__))
@@ -29,7 +30,7 @@ describe ImageVise::FetcherFile do
 
     uri = URI('file://' + ImageVise::FetcherFile.encode_file_uri_path(path))
     expect {
-      ImageVise::FetcherFile.fetch_uri_to_tempfile(uri)
+      ImageVise::FetcherFile.fetch_to_tempfile(path: __FILE__)
     }.to raise_error(ImageVise::FetcherFile::AccessError)
   end
 
@@ -42,20 +43,21 @@ describe ImageVise::FetcherFile do
 
     uri = URI('file://' + ImageVise::FetcherFile.encode_file_uri_path(path))
     expect {
-      ImageVise::FetcherFile.fetch_uri_to_tempfile(uri)
+      ImageVise::FetcherFile.fetch_to_tempfile(path: __FILE__)
     }.to raise_error(ImageVise::FetcherFile::AccessError)
   end
 
   it 'raises a meaningful exception if the image exceeds the maximum permitted size' do
     path = File.expand_path(__FILE__)
-    ruby_files_in_this_directory = __dir__ + '/*.rb'
-    ImageVise.allow_filesystem_source! ruby_files_in_this_directory
+    # Allow access to the entire spec directory and subdirectories using absolute path
+    whitelist_pattern = File.expand_path(File.dirname(__dir__)) + '/**/*.rb'
+    ImageVise.allow_filesystem_source! whitelist_pattern
 
     uri = URI('file://' + ImageVise::FetcherFile.encode_file_uri_path(path))
     expect(ImageVise::FetcherFile).to receive(:maximum_source_file_size_bytes).and_return(1)
 
     expect {
-      ImageVise::FetcherFile.fetch_uri_to_tempfile(uri)
+      ImageVise::FetcherFile.fetch_to_tempfile(path: __FILE__)
     }.to raise_error {|e|
       expect(e).to be_kind_of(ImageVise::FetcherFile::AccessError)
       expect(e.message).to match(/is too large to process/)

@@ -7,34 +7,29 @@ class ImageVise::FetcherFile
     def http_status; 400; end
   end
 
-  def self.fetch_uri_to_tempfile(uri)
-    tf = Tempfile.new 'imagevise-localfs-copy'
-    real_path_on_filesystem = uri_to_path(uri)
+  def self.fetch_to_tempfile(path: nil, **kwargs)
+    # Handle both old and new calling conventions
+    path ||= kwargs[:path]
+    raise ArgumentError, "path parameter is required" unless path
+    
+    tf = Tempfile.new 'imagevise-file-download'
+    real_path_on_filesystem = File.expand_path(path)
     verify_filesystem_access!(real_path_on_filesystem)
     verify_file_size_within_limit!(real_path_on_filesystem)
+    
     File.open(real_path_on_filesystem, 'rb') do |f|
       IO.copy_stream(f, tf)
     end
-    tf.rewind; tf
+    tf.rewind
+    tf
   rescue Exception => e
     ImageVise.close_and_unlink(tf)
     raise e
   end
 
-  def self.decode_file_uri_path(path_with_percent_encoded_components)
-    path_with_percent_encoded_components.split('/').map { |component| URI.decode_www_form_component(component) }.join('/')
-  end
-
-  def self.file_url_for(path)
-    "file://#{encode_file_uri_path(path)}"
-  end
-
   def self.encode_file_uri_path(path)
-    path.split('/').map { |component| URI.encode_www_form_component(component) }.join('/')
-  end
-
-  def self.uri_to_path(uri)
-    File.expand_path(decode_file_uri_path(uri.path))
+    # Encode the path for use in file:// URLs
+    URI.encode_www_form_component(path).gsub('+', '%20')
   end
 
   def self.verify_filesystem_access!(path_on_filesystem)

@@ -9,6 +9,31 @@ describe ImageVise::RenderEngine do
     ImageVise.reset_cache_lifetime_seconds!
   end
 
+  # Helper method to create ImageRequest with new structure
+  def create_image_request(url, pipeline)
+    uri = URI(url)
+    fetcher = case uri.scheme
+              when 'http', 'https'
+                'http'
+              when 'file'
+                'file'
+              else
+                raise ArgumentError, "unsupported URL scheme: #{uri.scheme}"
+              end
+    
+    params_hash = case fetcher
+                  when 'http'
+                    { url: url }
+                  when 'file'
+                    { path: uri.path }
+                  else
+                    {}
+                  end
+    
+    src = ImageVise::ImageRequest::Src.new(fetcher, params_hash)
+    ImageVise::ImageRequest.new(src: src, pipeline: pipeline)
+  end
+
   context 'when the subclass is configured to raise exceptions' do
     after :each do
       ImageVise.reset_allowed_hosts!
@@ -23,7 +48,7 @@ describe ImageVise::RenderEngine do
       end
 
       p = ImageVise::Pipeline.new.crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: 'http://unknown.com/image.jpg', pipeline: p)
+      image_request = create_image_request('http://unknown.com/image.jpg', p)
       expect(app).to receive(:handle_generic_error).and_call_original
       expect {
         get image_request.to_path_params('l33tness')
@@ -49,10 +74,10 @@ describe ImageVise::RenderEngine do
       uri.path = '/___nonexistent_image.jpg'
 
       p = ImageVise::Pipeline.new.crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       bad_data = StringIO.new('totally not an image')
-      expect(ImageVise::FetcherHTTP).to receive(:fetch_uri_to_tempfile).and_return(bad_data)
+      expect(ImageVise::FetcherHTTP).to receive(:fetch_to_tempfile).and_return(bad_data)
       expect(app).to receive(:handle_request_error).and_call_original
 
       get image_request.to_path_params('l33tness')
@@ -68,7 +93,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness')
       expect(last_response.status).to eq(403)
@@ -82,7 +107,7 @@ describe ImageVise::RenderEngine do
       uri.path = '/forbidden'
 
       p = ImageVise::Pipeline.new.crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness')
       expect(last_response.status).to eq(403)
@@ -101,7 +126,7 @@ describe ImageVise::RenderEngine do
         allow_any_instance_of(Patron::Session).to receive(:get_file).and_return(double(status: error_code))
 
         p = ImageVise::Pipeline.new.crop(width: 10, height: 10, gravity: 'c')
-        image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+        image_request = create_image_request(uri.to_s, p)
 
         get image_request.to_path_params('l33tness')
 
@@ -123,7 +148,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 35, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       req_path = image_request.to_path_params('l33tness')
 
@@ -148,7 +173,7 @@ describe ImageVise::RenderEngine do
 
       ImageVise.cache_lifetime_seconds = '900'
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 35, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       req_path = image_request.to_path_params('l33tness')
 
@@ -163,7 +188,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 35, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       req_path = image_request.to_path_params('l33tness')
 
@@ -178,7 +203,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: '512x335').fit_crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness')
       expect(last_response.status).to eq(200)
@@ -191,24 +216,18 @@ describe ImageVise::RenderEngine do
       expect(parsed_image.columns).to eq(10)
     end
 
-    it 'properly decodes the image request if its Base64 representation contains masked slashes and plus characters' do
+    it 'properly decodes the image request if its JWT representation contains masked slashes and plus characters' do
       ImageVise.add_secret_key!("this is fab")
-      sig = '64759d9ea610d75d9138bfa3ea01595d343ca8994261ae06fca8e6490222f140'
-      q = 'eyJwaXBlbGluZSI6W1sic2hhcnBlbiIseyJyYWRpdXMiO' +
-       'jAuNSwic2lnbWEiOjAuNX1dXSwic3JjX3VybCI6InNoYWRl' +
-       'cmljb246L0NQR1BfRmlyZWJhbGw-Yz1kOWM4ZTMzO'+
-       'TZmNjMwYzM1MjM0MTYwMmM2YzJhYmQyZjAzNTcxMTF'+
-       'jIn0'
-      req = ImageVise::ImageRequest.from_params(
-        base64_encoded_params: q,
-        given_signature: sig,
-        secrets: ['this is fab']
-      )
+      
+      # Create a JWT request instead of HMAC
+      src = ImageVise::ImageRequest::Src.new('shadericon', { url: 'shadericon://CPGP_Fireball?c=d9c8e3396f630c352341602c6c2abd2f035711c' })
+      pipeline = ImageVise::Pipeline.new.sharpen(radius: 0.5, sigma: 0.5)
+      req = ImageVise::ImageRequest.new(src: src, pipeline: pipeline)
 
       # We do a check based on the raised exception - the request will fail
       # at the fetcher lookup stage. That stage however takes place _after_ the
-      # signature has been validated, which means that the slash within the
-      # Base64 payload has been taken into account
+      # JWT has been validated, which means that the slash within the
+      # JWT payload has been taken into account
       allow(app).to receive(:raise_exceptions?).and_return(true)
       expect {
         get req.to_path_params('this is fab')
@@ -221,11 +240,10 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: '512x335').fit_crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       expect(app).to receive(:parse_env_into_request).and_call_original
       expect(app).to receive(:process_image_request).and_call_original
-      expect(app).to receive(:extract_params_from_request).and_call_original
       expect(app).to receive(:image_rack_response).and_call_original
       expect(app).to receive(:permitted_format?).and_call_original
 
@@ -239,7 +257,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness')
       expect(last_response.status).to eq(200)
@@ -255,7 +273,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness')
       File.unlink(utf8_file_path)
@@ -263,15 +281,15 @@ describe ImageVise::RenderEngine do
       expect(last_response.headers['Content-Type']).to eq('image/jpeg')
     end
 
-    it 'forbids a request with an extra GET param' do
+    it 'allows requests with query parameters (JWT does not validate query params)' do
       uri = 'file://' + ImageVise::FetcherFile.encode_file_uri_path(test_image_path)
 
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 10, gravity: 'c')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness'), {'extra' => '123'}
 
-      expect(last_response.status).to eq(400)
+      expect(last_response.status).to eq(200)
     end
 
     it 'returns the processed JPEG image as a PNG if it had to get an alpha channel during processing' do
@@ -280,7 +298,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: '220x220').ellipse_stencil
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness')
       expect(last_response.status).to eq(200)
@@ -297,7 +315,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: '220x220').ellipse_stencil
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('l33tness')
       expect(last_response.status).to eq(200)
@@ -309,7 +327,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: '220x220')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       class << app
         def raise_exceptions?; true; end
@@ -329,7 +347,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: '220x220')
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       class << app
         def source_file_type_permitted?(type); true; end
@@ -346,7 +364,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('1337ness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: 'x220').force_jpg_out(quality: 85)
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('1337ness')
 
@@ -362,7 +380,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('1337ness')
 
       p = ImageVise::Pipeline.new.geom(geometry_string: 'x220').expire_after(seconds: 20)
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('1337ness')
 
@@ -375,7 +393,7 @@ describe ImageVise::RenderEngine do
       ImageVise.add_secret_key!('h00ray')
 
       p = ImageVise::Pipeline.new.background_fill(color: 'white').geom(geometry_string: 'x220').force_jpg_out(quality: 5)
-      image_request = ImageVise::ImageRequest.new(src_url: uri.to_s, pipeline: p)
+      image_request = create_image_request(uri.to_s, p)
 
       get image_request.to_path_params('h00ray')
 

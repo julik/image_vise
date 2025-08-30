@@ -1,64 +1,145 @@
 require 'spec_helper'
 
 describe ImageVise::ImageRequest do
-  it 'accepts a set of params and secrets, and returns a Pipeline' do
-    img_params = {src_url: 'http://bucket.s3.aws.com/image.jpg', pipeline: [[:crop, {width: 10, height: 10, gravity: 's'}]]}
-    img_params_json = JSON.dump(img_params)
-    
-    q = Base64.encode64(img_params_json)
-    sig = OpenSSL::HMAC.hexdigest(OpenSSL::Digest::SHA256.new, 'this is a secret', q)
+  let(:test_secret) { 'this_is_a_test_secret_key' }
+  let(:secrets) { [test_secret] }
+  
+  describe '.from_token' do
+    it 'creates an ImageRequest from a valid JWT token' do
+      src = ImageVise::ImageRequest::Src.new('http', { url: 'http://bucket.s3.aws.com/image.jpg' })
+      pipeline = ImageVise::Pipeline.new.thumb(width: 150, height: 150)
+      request = ImageVise::ImageRequest.new(src: src, pipeline: pipeline)
+      
+      jwt_token = request.to_path_params('secret123')
+      
+      image_request = described_class.from_token(
+        jwt_token: jwt_token,
+        secrets: ['secret123']
+      )
+      
+      expect(image_request).to be_kind_of(described_class)
+      expect(image_request.src.fetcher).to eq('http')
+      expect(image_request.src.params[:url]).to eq('http://bucket.s3.aws.com/image.jpg')
+    end
 
-    image_request = described_class.from_params(
-      base64_encoded_params: q,
-      given_signature: sig,
-      secrets: ['this is a secret']
-    )
-    expect(image_request).to be_kind_of(described_class)
-  end
+    it 'supports key rotation by trying multiple secrets' do
+      src = ImageVise::ImageRequest::Src.new('http', { url: 'http://example.com/image.jpg' })
+      pipeline = ImageVise::Pipeline.new.thumb(width: 100, height: 100)
+      request = ImageVise::ImageRequest.new(src: src, pipeline: pipeline)
+      
+      # Sign with the first secret
+      jwt_token = request.to_path_params('current_secret')
+      
+      # Verify with multiple secrets (current first, then previous)
+      image_request = described_class.from_token(
+        jwt_token: jwt_token,
+        secrets: ['current_secret', 'previous_secret', 'legacy_secret']
+      )
+      
+      expect(image_request).to be_kind_of(described_class)
+      expect(image_request.src.fetcher).to eq('http')
+      expect(image_request.src.params[:url]).to eq('http://example.com/image.jpg')
+    end
 
-  it 'converts a file:// URL into a URI object' do
-    img_params = {src_url: 'file:///etc/passwd', pipeline: [[:auto_orient, {}]]}
-    img_params_json = JSON.dump(img_params)
-    q = Base64.encode64(img_params_json)
-    sig = OpenSSL::HMAC.hexdigest(OpenSSL::Digest::SHA256.new, 'this is a secret', q)
-    image_request = described_class.from_params(
-      base64_encoded_params: q,
-      given_signature: sig,
-      secrets: ['this is a secret']
-    )
-    expect(image_request.src_url).to be_kind_of(URI)
-  end
-
-  it 'composes path parameters' do
-    parametrized = double(to_params: {foo: 'bar'})
-    uri = URI('http://example.com/image.psd')
-    image_request = described_class.new(src_url: uri, pipeline: parametrized)
-    path = image_request.to_path_params('password')
-    expect(path).to start_with('/eyJwaXB')
-    expect(path).to end_with('f207b')
-  end
-
-  it 'never apppends "="-padding to the Base64-encoded "q"' do
-    parametrized = double(to_params: {foo: 'bar'})
-    (1..12).each do |num_chars_in_url|
-      uri = URI('http://ex.com/%s'  % ('i' * num_chars_in_url))
-      image_request = described_class.new(src_url: uri, pipeline: parametrized)
-      q = image_request.to_path_params('password')
-      expect(q).not_to include('=')
+    it 'fails when no secret matches' do
+      src = ImageVise::ImageRequest::Src.new('http', { url: 'http://example.com/image.jpg' })
+      pipeline = ImageVise::Pipeline.new.thumb(width: 100, height: 100)
+      request = ImageVise::ImageRequest.new(src: src, pipeline: pipeline)
+      
+      jwt_token = request.to_path_params('correct_secret')
+      
+      expect {
+        described_class.from_token(
+          jwt_token: jwt_token,
+          secrets: ['wrong_secret1', 'wrong_secret2']
+        )
+      }.to raise_error(described_class::InvalidRequest, /Invalid JWT token/)
     end
   end
 
-  describe 'fails with an invalid signature' do
-    it 'when the sig is invalid' do
-      img_params = {src_url: 'http://bucket.s3.aws.com/image.jpg',
-          pipeline: [[:crop, {width: 10, height: 10, gravity: 's'}]]}
-      img_params_json = JSON.dump(img_params)
-      enc = Base64.encode64(img_params_json)
-      signature = OpenSSL::HMAC.hexdigest(OpenSSL::Digest::SHA256.new, 'a', enc)
+  describe '#to_path_params' do
+    it 'generates a JWT token for path parameters' do
+      source_definition = ImageVise::ImageRequest::Src.new('http', { url: 'http://example.com/image.jpg' })
+      pipeline = double(to_params: [[:crop, { width: 100, height: 100 }]])
       
-      expect {
-        described_class.from_params(base64_encoded_params: enc, given_signature: signature, secrets: ['b'])
-      }.to raise_error(/Invalid or missing signature/)
+      image_request = described_class.new(src: source_definition, pipeline: pipeline)
+      
+      path_params = image_request.to_path_params(test_secret)
+      
+      # Verify it's a valid JWT token
+      decoded = JWT.decode(path_params, test_secret, true, { algorithm: 'HS256' })
+      expect(decoded.first).to include('ivise.src', 'ivise.pipe')
+    end
+
+    it 'includes source and pipeline information in the JWT' do
+      source_definition = ImageVise::ImageRequest::Src.new('file', { path: '/tmp/image.jpg' })
+      pipeline = double(to_params: [[:thumb, { width: 150, height: 150 }]])
+      
+      image_request = described_class.new(src: source_definition, pipeline: pipeline)
+      
+      path_params = image_request.to_path_params(test_secret)
+      decoded = JWT.decode(path_params, test_secret, true, { algorithm: 'HS256' })
+      claims = decoded.first
+      
+      expect(claims['ivise.src']).to eq({ "f" => 'file', "p" => { "path" => '/tmp/image.jpg' } })
+      expect(claims['ivise.pipe']).to eq([["thumb", {"width" => 150, "height" => 150}]])
+    end
+  end
+
+  describe '#to_h' do
+    it 'returns a hash with pipeline params and source URL' do
+      source_definition = ImageVise::ImageRequest::Src.new('http', { url: 'http://example.com/image.jpg' })
+      pipeline = double(to_params: { crop: { width: 100, height: 100 } })
+      
+      image_request = described_class.new(src: source_definition, pipeline: pipeline)
+      
+      result = image_request.to_h
+      
+      expect(result).to include(:pipeline, :src_url)
+      expect(result[:pipeline]).to eq({ crop: { width: 100, height: 100 } })
+      expect(result[:src_url]).to be_a(String)
+    end
+  end
+
+  describe '#cache_etag' do
+    it 'generates a consistent hash based on the request parameters' do
+      source_definition = ImageVise::ImageRequest::Src.new('http', { url: 'http://example.com/image.jpg' })
+      pipeline = double(to_params: { crop: { width: 100, height: 100 } })
+      
+      image_request = described_class.new(src: source_definition, pipeline: pipeline)
+      
+      etag1 = image_request.cache_etag
+      etag2 = image_request.cache_etag
+      
+      expect(etag1).to eq(etag2)
+      expect(etag1).to be_a(String)
+      expect(etag1.length).to eq(40) # SHA1 hex digest length
+    end
+
+    it 'generates different etags for different parameters' do
+      source1 = ImageVise::ImageRequest::Src.new('http', { url: 'http://example.com/image1.jpg' })
+      source2 = ImageVise::ImageRequest::Src.new('http', { url: 'http://example.com/image2.jpg' })
+      pipeline = double(to_params: { crop: { width: 100, height: 100 } })
+      
+      image_request1 = described_class.new(src: source1, pipeline: pipeline)
+      image_request2 = described_class.new(src: source2, pipeline: pipeline)
+      
+      expect(image_request1.cache_etag).not_to eq(image_request2.cache_etag)
+    end
+  end
+
+  describe 'Src class' do
+    it 'converts string keys to symbols in params' do
+      src = ImageVise::ImageRequest::Src.new('http', { 'url' => 'http://example.com/image.jpg', 'width' => '100' })
+      
+      expect(src.params).to eq({ url: 'http://example.com/image.jpg', width: '100' })
+      expect(src.params.keys).to all(be_a(Symbol))
+    end
+
+    it 'handles empty params' do
+      src = ImageVise::ImageRequest::Src.new('http', {})
+      
+      expect(src.params).to eq({})
     end
   end
 end

@@ -13,7 +13,7 @@ describe ImageVise::FetcherHTTP do
   it 'raises an AccessError if the host of the URL is not on the whitelist' do
     uri = URI('https://wrong-origin.com/image.psd')
     expect {
-      ImageVise::FetcherHTTP.fetch_uri_to_tempfile(uri)
+      ImageVise::FetcherHTTP.fetch_to_tempfile(url: uri.to_s)
     }.to raise_error(ImageVise::FetcherHTTP::AccessError, /is not permitted as source/)
   end
 
@@ -22,7 +22,7 @@ describe ImageVise::FetcherHTTP do
     ImageVise.add_allowed_host! 'localhost'
     
     expect {
-      ImageVise::FetcherHTTP.fetch_uri_to_tempfile(uri)
+      ImageVise::FetcherHTTP.fetch_to_tempfile(url: uri.to_s)
     }.to raise_error {|e|
       expect(e).to be_kind_of(ImageVise::FetcherHTTP::UpstreamError)
       expect(e.message).to include(uri.to_s)
@@ -37,7 +37,7 @@ describe ImageVise::FetcherHTTP do
     expect(ImageVise::FetcherHTTP).to receive(:maximum_response_size_bytes).and_return(10)
 
     expect {
-      ImageVise::FetcherHTTP.fetch_uri_to_tempfile(uri)
+      ImageVise::FetcherHTTP.fetch_to_tempfile(url: uri.to_s)
     }.to raise_error {|e|
       expect(e).to be_kind_of(ImageVise::FetcherHTTP::UpstreamError)
       expect(e.message).to include(uri.to_s)
@@ -50,7 +50,7 @@ describe ImageVise::FetcherHTTP do
     uri = URI(public_url_psd)
     ImageVise.add_allowed_host! 'localhost'
 
-    result = ImageVise::FetcherHTTP.fetch_uri_to_tempfile(uri)
+    result = ImageVise::FetcherHTTP.fetch_to_tempfile(url: uri.to_s)
 
     expect(result).to be_kind_of(Tempfile)
     expect(result.size).to be_nonzero

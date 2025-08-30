@@ -68,6 +68,10 @@ class ImageVise
       S_MUTEX.synchronize { @allowed_glob_patterns.clear }
     end
 
+    def reset_filesystem_sources!
+      S_MUTEX.synchronize { @allowed_glob_patterns.clear }
+    end
+
     def cache_lifetime_seconds=(length)
       Integer(length)
       S_MUTEX.synchronize { @cache_lifetime = length.to_i }
@@ -100,20 +104,26 @@ class ImageVise
     # Generate a path for a resized image. Yields a Pipeline object that
     # will receive method calls for adding image operations to a stack.
     #
-    #   ImageVise.image_path(src_url: image_url_on_s3, secret: '...') do |p|
+    #   ImageVise.image_path(fetcher: 'http', fetcher_params: {url: image_url_on_s3}, secret: '...') do |p|
     #      p.center_fit width: 128, height: 128
     #      p.elliptic_stencil
-    #   end #=> "/abcdef/xyz123"
+    #   end #=> "/eyJhbGciOiJIUzI1NiJ9..."
     #
-    # The query string elements can be then passed on to RenderEngine for validation and execution.
+    # The JWT token can be then passed on to RenderEngine for validation and execution.
     #
+    # @param fetcher [String] the registered fetcher name (e.g., 'http', 'file')
+    # @param fetcher_params [Hash] the parameters for the fetcher
+    # @param secret [String] the secret key for signing the JWT
     # @yield {ImageVise::Pipeline}
     # @return [String]
-    def image_path(src_url:, secret:)
+    def image_path(fetcher:, fetcher_params:, secret:)
       p = Pipeline.new
       yield(p)
       raise ArgumentError, "Image pipeline has no steps defined" if p.empty?
-      ImageRequest.new(src_url: URI(src_url), pipeline: p).to_path_params(secret)
+      
+      # Create source directly from fetcher and params
+      src = ImageVise::ImageRequest::Src.new(fetcher, fetcher_params)
+      '/' + ImageRequest.new(src: src, pipeline: p).to_path_params(secret)
     end
 
     # Adds an operator

@@ -6,19 +6,30 @@ framework. The main uses are:
 * Image resizing on request
 * Applying image filters
 
-It is implemented as a Rack application that responds to any URL and accepts the following two _last_ path
-compnents, internally named `request` and `signature`:
+It is implemented as a Rack application that responds to any URL and accepts a JWT (JSON Web Token) in the path
+component. The JWT token contains the source image information and processing pipeline operations.
 
-* `request` - Base64 encoded JSON object with `src_url` and `pipeline` properties
-    (the source URL of the image and processing steps to apply)
-* `signature` - the HMAC signature, computed over the JSON in `q` before it gets Base64-encoded
+A request to `ImageVise` looks like this:
 
-A request to `ImageVise` might look like this:
+    /eyJhbGciOiJIUzI1NiJ9.eyJpdmlzZS5zcmMiOnsiZiI6Imh0dHAiLCJwIjp7InVybCI6Imh0dHA6Ly9leGFtcGxlLmNvbS9pbWFnZS5qcGcifX0sIml2aXNlLnBpcGUiOltbImNyb3AiLHsid2lkdGgiOjEwMCwiSGVpZ2h0IjoxMDB9XV19.xyz...
 
-    /acbhGyfhyYErghff/acfgheg123
+The JWT token contains the following claims:
+- `ivise.src` - Source image information with `f` (fetcher type) and `p` (parameters)
+- `ivise.pipe` - Array of processing pipeline operations
 
-The URL that gets generated is best composed with the included `ImageVise.image_params` method. This method will
-take care of encoding the source URL and the commands in the right way, as well as signing.
+## JWT-Based Request System
+
+ImageVise uses JWT (JSON Web Token) based requests for secure and flexible image processing. JWT requests provide a modern, secure way to handle image processing requests with built-in validation and expiration support.
+
+### JWT Request Format
+
+JWT requests use a single path component containing the JWT token:
+
+    /eyJhbGciOiJIUzI1NiJ9.eyJpdmlzZS5zcmMiOnsiZiI6Imh0dHAiLCJwIjp7InVybCI6Imh0dHA6Ly9leGFtcGxlLmNvbS9pbWFnZS5qcGcifX0sIml2aXNlLnBpcGUiOltbImNyb3AiLHsid2lkdGgiOjEwMCwiSGVpZ2h0IjoxMDB9XV19.xyz...
+
+The JWT token contains the following claims:
+- `ivise.src` - Source image information with `f` (fetcher type) and `p` (parameters)
+- `ivise.pipe` - Array of processing pipeline operations
 
 ## ImageMagick version
 
@@ -48,7 +59,7 @@ You might want to define a helper method for generating signed URLs as well, whi
 
 ```ruby
 def thumb_url(source_image_url)
-  path = ImageVise.image_path(src_url: source_image_url, secret: ENV.fetch('IMAGE_VISE_SECRET')) do |pipeline|
+  path = ImageVise.image_path(fetcher: 'http', fetcher_params: {url: source_image_url}, secret: ENV.fetch('IMAGE_VISE_SECRET')) do |pipeline|
      # For example, you can also yield `pipeline` to the caller
     pipeline.fit_crop width: 128, height: 128, gravity: 'c'
   end
@@ -56,8 +67,29 @@ def thumb_url(source_image_url)
 end
 ```
 
+### JWT-Based URL Generation
+
+For JWT-based requests, you can use the new `ImageVise::ImageRequest` class directly:
+
+```ruby
+def thumb_url_jwt(source_image_url)
+  # Create source definition
+  src = ImageVise::ImageRequest::Src.new('http', { url: source_image_url })
+  
+  # Create pipeline
+  pipeline = ImageVise::Pipeline.new
+  pipeline.fit_crop width: 128, height: 128, gravity: 'c'
+  
+  # Create request and generate JWT token
+  request = ImageVise::ImageRequest.new(src: src, pipeline: pipeline)
+  jwt_token = request.to_path_params(ENV.fetch('IMAGE_VISE_SECRET'))
+  
+  '/images/' + jwt_token
+end
+```
+
 To preserve your sanity, make the route to the ImageVise engine terminal and do _not_ perform rewrites
-on it in your webserver configuration - for instance, Base64 permits slashes.
+on it in your webserver configuration - for instance, JWT tokens can contain slashes.
 
 ## Using ImageVise within a Rack application
 
@@ -78,7 +110,7 @@ You might want to define a helper method for generating signed URLs as well, whi
 
 ```ruby
 def thumb_url(source_image_url)
-  path_param = ImageVise.image_path(src_url: source_image_url, secret: ENV.fetch('IMAGE_VISE_SECRET')) do |pipe|
+  path_param = ImageVise.image_path(fetcher: 'http', fetcher_params: {url: source_image_url}, secret: ENV.fetch('IMAGE_VISE_SECRET')) do |pipe|
     pipe.fit_crop width: 256, height: 256, gravity: 'c'
     pipe.sharpen sigma: 0.5, radius: 2
     pipe.ellipse_stencil
@@ -90,11 +122,28 @@ end
 
 ## Processing files on the local filesystem instead of remote ones
 
-If you want to grab a local file, compose a `file://` URL (mind the endcoding!)
+If you want to grab a local file, compose a `file://` URL (mind the encoding!)
 
     src_url = 'file://' + ImageVise::FetcherFile.encode_file_uri_path(File.expand_path(my_pic))
 
 Note that you need to permit certain glob patterns as sources before this will work, see below.
+
+### JWT File Processing
+
+For JWT-based file processing:
+
+```ruby
+# Create source definition for local file
+src = ImageVise::ImageRequest::Src.new('file', { path: '/path/to/local/image.jpg' })
+
+# Create pipeline
+pipeline = ImageVise::Pipeline.new
+pipeline.fit_crop width: 300, height: 300
+
+# Create request and generate JWT token
+request = ImageVise::ImageRequest.new(src: src, pipeline: pipeline)
+jwt_token = request.to_path_params(ENV.fetch('IMAGE_VISE_SECRET'))
+```
 
 ## Operators and pipelining
 
@@ -142,26 +191,43 @@ image = Magick::Image.read(my_image_path)[0]
 pipe.apply!(image)
 ```
 
-
 ## Caching
 
 The app is _designed_ to be run behind a frontline HTTP cache. The easiest is to use `Rack::Cache`, but this might
 be instance-local depending on the storage backend used. A much better idea is to run ImageVise behind a long-caching
 CDN.
 
-## Shared HMAC keys for signed URLs
+## JWT Secret Keys
 
-To allow `ImageVise` to recognize the signature when the signature is going to be received, add it to the list
-of the shared keys on the `ImageVise` server:
+JWT requests are signed using HS256 algorithm with your configured secret keys:
 
 ```ruby
-ImageVise.add_secret_key!('ahoy! this is a secret!')
+# Add secret keys for signing JWT tokens
+ImageVise.add_secret_key!('your_secret_key_here')
 ```
 
 A single `ImageVise` server can maintain multiple signature keys, so that you will be able to generate thumbnails from
-multiple applications all using different keys for their signatures. Every request will be validated against
-each key and if at least one key generates the same signature for the same given parameters, it is going to be
-accepted and the request will be allowed to go through.
+multiple applications all using different keys for their signatures. JWT requests will be validated against the key used for signing.
+
+### Key Rotation Support
+
+ImageVise supports key rotation for JWT verification. When verifying JWT tokens, the system will try each key until verification succeeds:
+
+```ruby
+# Add multiple secret keys for key rotation
+ImageVise.add_secret_key!('current_secret_key')
+ImageVise.add_secret_key!('previous_secret_key')  # For backward compatibility
+ImageVise.add_secret_key!('legacy_secret_key')    # For older tokens
+
+# When generating new tokens, use the current secret
+# When verifying tokens, all keys are tried until one succeeds
+```
+
+**Important Notes:**
+- **Signing**: Always uses the secret provided to `image_path` (single secret)
+- **Verification**: Tries **all** secret keys until one succeeds
+- **Key Order**: Add new keys first, then old keys for proper rotation
+- **Backward Compatibility**: Old tokens signed with previous keys will continue to work
 
 ## Hostname and filesystem validation
 

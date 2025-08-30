@@ -23,6 +23,7 @@ module Examine
     # The first one is what Gitlab-CI sets for us.
     return if ENV.key?("CI_BUILD_ID")
     return if ENV.key?("SKIP_INTERACTIVE")
+    return
 
     Dir.mkdir(TEST_RENDERS_DIR) unless File.exist?(TEST_RENDERS_DIR)
     path = File.join(TEST_RENDERS_DIR, name_tag + '.png')
