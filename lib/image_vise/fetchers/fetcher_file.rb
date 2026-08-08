@@ -27,9 +27,23 @@ class ImageVise::FetcherFile
     raise e
   end
 
+  # Percent-encodes a filesystem path for use in a file:// URL. The path separators
+  # have to survive intact, so every path component gets encoded on its own -
+  # encoding the path as a whole would turn the slashes into %2F and the resulting
+  # "URL" would parse as a hostname with an empty path.
   def self.encode_file_uri_path(path)
-    # Encode the path for use in file:// URLs
-    URI.encode_www_form_component(path).gsub('+', '%20')
+    path.split('/').map { |component| URI.encode_www_form_component(component) }.join('/')
+  end
+
+  # The inverse of `encode_file_uri_path`
+  def self.decode_file_uri_path(path_with_percent_encoded_components)
+    path_with_percent_encoded_components.split('/').map { |component| URI.decode_www_form_component(component) }.join('/')
+  end
+
+  # Recovers the filesystem path from a file:// URL, so that it can be passed
+  # as the `path:` parameter of `fetch_to_tempfile`
+  def self.uri_to_path(uri)
+    File.expand_path(decode_file_uri_path(URI(uri.to_s).path))
   end
 
   def self.verify_filesystem_access!(path_on_filesystem)

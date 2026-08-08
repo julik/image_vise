@@ -122,9 +122,14 @@ end
 
 ## Processing files on the local filesystem instead of remote ones
 
-If you want to grab a local file, compose a `file://` URL (mind the encoding!)
+The `file` fetcher takes a plain filesystem path as its `path` parameter, see "JWT File Processing" below.
+
+If your image locations travel through your application as `file://` URLs, convert between the two
+using `encode_file_uri_path` (which percent-encodes every path component, keeping the separators intact)
+and `uri_to_path`:
 
     src_url = 'file://' + ImageVise::FetcherFile.encode_file_uri_path(File.expand_path(my_pic))
+    path = ImageVise::FetcherFile.uri_to_path(src_url)
 
 Note that you need to permit certain glob patterns as sources before this will work, see below.
 

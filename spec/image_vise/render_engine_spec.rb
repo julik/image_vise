@@ -25,7 +25,7 @@ describe ImageVise::RenderEngine do
                   when 'http'
                     { url: url }
                   when 'file'
-                    { path: uri.path }
+                    { path: ImageVise::FetcherFile.uri_to_path(uri) }
                   else
                     {}
                   end
@@ -283,6 +283,8 @@ describe ImageVise::RenderEngine do
 
     it 'allows requests with query parameters (JWT does not validate query params)' do
       uri = 'file://' + ImageVise::FetcherFile.encode_file_uri_path(test_image_path)
+      ImageVise.allow_filesystem_source!(File.dirname(test_image_path) + '/*.*')
+      ImageVise.add_secret_key!('l33tness')
 
       p = ImageVise::Pipeline.new.fit_crop(width: 10, height: 10, gravity: 'c')
       image_request = create_image_request(uri.to_s, p)

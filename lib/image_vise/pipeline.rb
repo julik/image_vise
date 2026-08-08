@@ -7,7 +7,11 @@ class ImageVise::Pipeline
     operators = array_of_operator_names_to_operator_params.map do |(operator_name, operator_params)|
       operator_class = operator_by_name(operator_name)
       if operator_params && operator_params.any? && operator_class.method(:new).arity.nonzero?
-        operator_class.new(**operator_params)
+        # The params arrive from JSON (the JWT claims) and are therefore string-keyed.
+        # Operators which declare required keyword arguments will not accept those,
+        # so symbolize before splatting. Only ever called with params whose signature
+        # has already been verified.
+        operator_class.new(**operator_params.to_h.transform_keys(&:to_sym))
       else
         operator_class.new
       end

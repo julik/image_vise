@@ -30,8 +30,8 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency 'patron', '~> 0.11'
-  spec.add_dependency 'rmagick', '~> 6'
-  spec.add_dependency 'rack', '>= 1', '< 3'
+  spec.add_dependency 'rmagick', '~> 7'
+  spec.add_dependency 'rack', '>= 1'
   spec.add_dependency 'format_parser', '~> 2'
   spec.add_dependency 'measurometer', '~> 1'
   spec.add_dependency 'base64'
