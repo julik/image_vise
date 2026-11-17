@@ -29,7 +29,7 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
-  spec.add_dependency 'patron', '~> 0.11'
+  spec.add_dependency 'patron', '>= 0.11'
   spec.add_dependency 'rmagick', '~> 7'
   spec.add_dependency 'rack', '>= 1'
   spec.add_dependency 'format_parser', '~> 2'
